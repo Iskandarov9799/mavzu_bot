@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Test</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-spinner"></div>
+  <div class="loader-text">Yuklanmoqda...</div>
+</div>
+
+<!-- TEST SCREEN -->
+<div id="test-screen" style="display:none;">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div id="header-title" class="header-title">📚 Test</div>
+      <div id="header-sub" class="header-sub">Yuklanmoqda...</div>
+    </div>
+    <div id="score-badge" class="score-badge">0 ball</div>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="progress-wrap">
+    <div class="progress-bar">
+      <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-info">
+      <span id="progress-num">1 / 1</span>
+      <span id="progress-pct">0%</span>
+    </div>
+  </div>
+
+  <!-- QUESTION -->
+  <div class="question-card">
+    <div id="question-badge" class="question-badge">SAVOL 1</div>
+    <img id="question-img" class="question-img" style="display:none;" alt="rasm">
+    <div id="question-text" class="question-text"></div>
+  </div>
+
+  <!-- OPTIONS -->
+  <div id="options" class="options"></div>
+
+  <!-- FEEDBACK -->
+  <div id="feedback" class="feedback" style="display:none;"></div>
+
+  <!-- BUTTONS -->
+  <div class="btn-row">
+    <button id="btn-skip"   class="btn btn-skip"   onclick="skipQuestion()">⏭ O'tkazish</button>
+    <button id="btn-next"   class="btn btn-next"   onclick="nextQuestion()"   style="display:none;">Keyingi ▶️</button>
+    <button id="btn-finish" class="btn btn-finish" onclick="confirmFinish()" style="display:none;">✅ Yakunlash</button>
+  </div>
+
+  <!-- GRID -->
+  <div class="grid-section">
+    <div class="grid-label">SAVOLLAR PANELI</div>
+    <div id="grid" class="grid"></div>
+  </div>
+
+</div><!-- /test-screen -->
+
+<!-- RESULT SCREEN -->
+<div id="result-screen" style="display:none;">
+  <div class="result-wrap">
+    <div id="result-user" class="result-user"></div>
+    <div id="result-emoji" class="result-emoji">📋</div>
+    <div id="result-grade" class="result-grade">Mutaxassis</div>
+    <div id="result-score" class="result-score">0%</div>
+
+    <div class="result-stats">
+      <div class="stat-box stat-correct">
+        <div id="stat-correct" class="stat-num">0</div>
+        <div class="stat-lbl">To'g'ri</div>
+      </div>
+      <div class="stat-box stat-wrong">
+        <div id="stat-wrong" class="stat-num">0</div>
+        <div class="stat-lbl">Xato</div>
+      </div>
+      <div class="stat-box stat-skip">
+        <div id="stat-skip" class="stat-num">0</div>
+        <div class="stat-lbl">O'tkazildi</div>
+      </div>
+    </div>
+
+    <div id="result-grid" class="result-grid"></div>
+
+    <button class="btn btn-close" onclick="closeApp()">✅ Yopish</button>
+  </div>
+</div><!-- /result-screen -->
+
+<script src="main.js"></script>
+</body>
+</html>
