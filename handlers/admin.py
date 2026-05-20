@@ -371,35 +371,143 @@ async def delete_bolim_confirm(callback: CallbackQuery, state: FSMContext):
 # EXCEL IMPORT / EKSPORT
 # ══════════════════════════════════════════════
 
+def _make_shablon_bytes() -> bytes:
+    """Shablon xlsx yaratish."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = "Savollar"
+
+    HEADER_BG = "1e3a5f"; HEADER_FG = "ffffff"
+    ROW1_BG   = "f0f4fa"; ROW2_BG   = "ffffff"
+    HINT_BG   = "fff3cd"; HINT_FG   = "856404"
+    thin   = Side(style="thin", color="c0c0c0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    COLUMNS = [
+        ("subject", 18, "onatili yoki adabiyot"),
+        ("bolim",   10, "0=Aralash, 1-40"),
+        ("text",    60, "Savol matni"),
+        ("a",       28, "A varianti"),
+        ("b",       28, "B varianti"),
+        ("c",       28, "C varianti"),
+        ("d",       28, "D varianti"),
+        ("correct", 12, "A, B, C yoki D"),
+        ("image",   20, "Rasm file_id (ixtiyoriy)"),
+    ]
+
+    # 1-qator sarlavhalar
+    for ci, (name, width, _) in enumerate(COLUMNS, 1):
+        cell = ws.cell(1, ci, name)
+        cell.font      = Font(bold=True, color=HEADER_FG, name="Arial", size=11)
+        cell.fill      = PatternFill("solid", start_color=HEADER_BG)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = border
+        ws.column_dimensions[get_column_letter(ci)].width = width
+    ws.row_dimensions[1].height = 25
+
+    # 2-qator izohlar
+    for ci, (_, _, hint) in enumerate(COLUMNS, 1):
+        cell = ws.cell(2, ci, hint)
+        cell.font      = Font(italic=True, color=HINT_FG, name="Arial", size=9)
+        cell.fill      = PatternFill("solid", start_color=HINT_BG)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = border
+    ws.row_dimensions[2].height = 18
+
+    # Namuna qatorlar
+    SAMPLES = [
+        ("onatili",  1, "O'zbek tilida nechta unli tovush bor?", "5 ta", "6 ta", "7 ta", "8 ta", "B", ""),
+        ("onatili",  1, "Qaysi so'z ot turkumiga kiradi?", "yugurmoq", "baland", "maktab", "tez", "C", ""),
+        ("onatili",  0, "Qaysi qatorda imlo xatosi yo'q?", "kitobxona", "kutubhona", "maktap", "daraxt'", "A", ""),
+        ("adabiyot", 1, "Alisher Navoiy qaysi asrda yashagan?", "XIV asr", "XV asr", "XVI asr", "XVII asr", "B", ""),
+        ("adabiyot", 1, "'Xamsa' asarining muallifi kim?", "Firdavsiy", "Sa'diy", "Navoiy", "Jomiy", "C", ""),
+        ("adabiyot", 2, "'O'tkan kunlar' romani muallifi kim?", "Cho'lpon", "Fitrat", "Abdulla Qodiriy", "G'afur G'ulom", "C", ""),
+    ]
+    for ri, sample in enumerate(SAMPLES, 3):
+        bg = ROW1_BG if ri % 2 == 1 else ROW2_BG
+        for ci, val in enumerate(sample, 1):
+            cell = ws.cell(ri, ci, val)
+            cell.font      = Font(name="Arial", size=10)
+            cell.fill      = PatternFill("solid", start_color=bg)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border    = border
+        ws.row_dimensions[ri].height = 18
+
+    ws.freeze_panes = "A3"
+
+    # Yo'riqnoma sheet
+    ws2 = wb.create_sheet("Yo'riqnoma")
+    INFO = [
+        ("MAYDON", "QIYMAT", "IZOH"),
+        ("subject", "onatili", "Ona tili fani"),
+        ("subject", "adabiyot", "Adabiyot fani"),
+        ("bolim", "0", "Barcha bo'limlardan aralash"),
+        ("bolim", "1 dan 40 gacha", "Aniq bo'lim raqami"),
+        ("correct", "A, B, C yoki D", "KATTA harf bilan yozing"),
+        ("image", "(bo'sh)", "Rasm yo'q bo'lsa bo'sh qoldiring"),
+    ]
+    ws2.column_dimensions["A"].width = 12
+    ws2.column_dimensions["B"].width = 22
+    ws2.column_dimensions["C"].width = 40
+    for ri, row in enumerate(INFO, 1):
+        for ci, val in enumerate(row, 1):
+            cell = ws2.cell(ri, ci, val)
+            cell.border = border
+            is_hdr = ri == 1
+            cell.font = Font(bold=is_hdr, color=HEADER_FG if is_hdr else "000000", name="Arial", size=10)
+            cell.fill = PatternFill("solid", start_color=HEADER_BG if is_hdr else ("f0f4fa" if ri%2 else "ffffff"))
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        ws2.row_dimensions[ri].height = 18
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
 @router.message(F.text == "📤 Excel import")
 async def excel_import_start(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    await message.answer(
-        "📤 <b>Excel import</b>\n\n"
-        "Excel fayl ustunlari:\n"
-        "<code>subject | bolim | text | a | b | c | d | correct</code>\n\n"
-        "subject: onatili yoki adabiyot\n"
-        "bolim: 0 (aralash) yoki 1-40\n"
-        "correct: A, B, C yoki D\n\n"
-        "Excel faylni yuboring:",
-        parse_mode="HTML"
+    shablon = _make_shablon_bytes()
+    await message.answer_document(
+        document = BufferedInputFile(shablon, filename="savollar_shablon.xlsx"),
+        caption  = (
+            "📤 <b>Excel import</b>\n\n"
+            "Shu shablonni yuklab oling, to'ldiring va qayta yuboring.\n\n"
+            "<b>Ustunlar:</b>\n"
+            "• <code>subject</code> — onatili yoki adabiyot\n"
+            "• <code>bolim</code> — 0 (aralash) yoki 1-40\n"
+            "• <code>text</code> — savol matni\n"
+            "• <code>a, b, c, d</code> — variantlar\n"
+            "• <code>correct</code> — A, B, C yoki D\n"
+            "• <code>image</code> — bo'sh qoldirilsa ham bo'ladi\n\n"
+            "To'ldirilgan faylni yuboring:"
+        ),
+        parse_mode = "HTML"
     )
     await state.set_state(AdminStates.excel_import)
 
 @router.message(AdminStates.excel_import, F.document)
 async def excel_import_file(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
-    file = await bot.get_file(message.document.file_id)
-    data = await bot.download_file(file.file_path)
+    file    = await bot.get_file(message.document.file_id)
+    data    = await bot.download_file(file.file_path)
     content = data.read()
 
     try:
         import openpyxl
-        wb   = openpyxl.load_workbook(io.BytesIO(content))
-        ws   = wb.active
-        rows = []
+        wb      = openpyxl.load_workbook(io.BytesIO(content))
+        ws      = wb.active
+        rows    = []
         headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(max_row=1))]
-        for row in ws.iter_rows(min_row=2, values_only=True):
+        # 2-qator izoh qatori bo'lishi mumkin — uni o'tkazib yuboramiz
+        start_row = 3 if ws.max_row > 2 and not str(ws.cell(2, 1).value or "").strip().lower() in ("onatili","adabiyot") else 2
+        for row in ws.iter_rows(min_row=start_row, values_only=True):
+            if not any(row): continue
             r = {}
             for i, h in enumerate(headers):
                 r[h] = row[i] if i < len(row) else None
@@ -407,8 +515,10 @@ async def excel_import_file(message: Message, state: FSMContext, bot: Bot):
         added, errors = await import_questions_from_excel(rows)
         text = f"✅ <b>Import tugadi!</b>\n\n📥 Qo'shildi: <b>{added}</b> ta\n"
         if errors:
-            text += f"⚠️ Xatolar: {len(errors)} ta\n"
-            text += "\n".join(errors[:5])
+            err_txt = "\n".join(errors[:10])
+            if len(errors) > 10:
+                err_txt += f"\n... va yana {len(errors)-10} ta xato"
+            text += f"⚠️ Xatolar ({len(errors)} ta):\n<code>{err_txt}</code>"
         await message.answer(text, reply_markup=admin_keyboard(), parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Import xato: {e}", reply_markup=admin_keyboard())
@@ -423,21 +533,30 @@ async def excel_export(message: Message, bot: Bot):
     if not is_admin(message.from_user.id): return
     try:
         import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
         from database.db import get_questions_page
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(["id", "subject", "bolim", "text", "a", "b", "c", "d", "correct"])
+        ws.title = "Savollar"
+        headers = ["id", "subject", "bolim", "text", "a", "b", "c", "d", "correct", "image"]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, name="Arial")
+            cell.fill = PatternFill("solid", start_color="1e3a5f")
+            cell.font = Font(bold=True, color="ffffff", name="Arial")
         offset = 0
         while True:
             qs = await get_questions_page(offset=offset, limit=100)
             if not qs: break
             for q in qs:
-                ws.append([q.id, q.subject, q.bolim, q.question_text,
-                           q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer])
+                ws.append([
+                    q.id, q.subject, q.bolim, q.question_text,
+                    q.option_a, q.option_b, q.option_c, q.option_d,
+                    q.correct_answer, q.image_file_id or ""
+                ])
             offset += 100
         buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
+        wb.save(buf); buf.seek(0)
         await message.answer_document(
             document = BufferedInputFile(buf.read(), filename="questions_export.xlsx"),
             caption  = "📥 Savollar eksporti"
