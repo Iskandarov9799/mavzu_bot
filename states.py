@@ -22,3 +22,10 @@ class AdminStates(StatesGroup):
     set_solution_url = State()
     excel_import     = State()
     delete_bolim     = State()
+
+class EditQuestionStates(StatesGroup):
+    browsing     = State()
+    edit_field   = State()
+    edit_value   = State()
+    confirm_delete = State()
+    searching    = State()

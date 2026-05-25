@@ -153,3 +153,66 @@ def bolim_select_keyboard(subject: str, prefix: str = "addq:bolim"):
     if row: buttons.append(row)
     buttons.append([InlineKeyboardButton(text="❌ Bekor", callback_data="addq:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# ══════════════════════════════════════════════
+# SAVOLLAR MUHARRIRI KEYBOARDLARI
+# ══════════════════════════════════════════════
+
+def qedit_page_keyboard(questions: list, page: int, total: int, prefix: str) -> InlineKeyboardMarkup:
+    buttons = []
+    SUBJ = {"onatili": "📚", "adabiyot": "📖"}
+    for q in questions:
+        icon     = SUBJ.get(q.subject, "❓")
+        bolim_tx = f"[{q.bolim}-b]" if q.bolim > 0 else "[Ar]"
+        label    = f"{icon}#{q.id} {bolim_tx} {q.question_text[:25]}…"
+        buttons.append([InlineKeyboardButton(
+            text          = label,
+            callback_data = f"qedit:view:{q.id}:{page}:{prefix}"
+        )])
+    total_pages = max(1, (total + 5 - 1) // 5)
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"qedit:page:{page-1}:{prefix}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="qedit:noop"))
+    if (page + 1) * 5 < total:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"qedit:page:{page+1}:{prefix}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([
+        InlineKeyboardButton(text="🔍 Qidirish", callback_data="qedit:search"),
+        InlineKeyboardButton(text="❌ Yopish",    callback_data="qedit:close"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def qedit_action_keyboard(qid: int, page: int, prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"qedit:edit:{qid}:{page}:{prefix}"),
+            InlineKeyboardButton(text="🗑 O'chirish",  callback_data=f"qedit:del:{qid}:{page}:{prefix}"),
+        ],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"qedit:page:{page}:{prefix}")],
+    ])
+
+def qedit_fields_keyboard(qid: int, page: int, prefix: str) -> InlineKeyboardMarkup:
+    fields = [
+        ("question_text",  "📝 Savol matni"),
+        ("option_a",       "🅰 A varianti"),
+        ("option_b",       "🅱 B varianti"),
+        ("option_c",       "🅲 C varianti"),
+        ("option_d",       "🅳 D varianti"),
+        ("correct_answer", "✅ To'g'ri javob"),
+        ("bolim",          "📌 Bo'lim raqami"),
+        ("subject",        "📚 Fan (onatili/adabiyot)"),
+        ("image_file_id",  "🖼 Rasm ID"),
+    ]
+    buttons = []
+    for fkey, flabel in fields:
+        buttons.append([InlineKeyboardButton(
+            text          = flabel,
+            callback_data = f"qedit:field:{fkey}:{qid}:{page}:{prefix}"
+        )])
+    buttons.append([InlineKeyboardButton(
+        text="🔙 Orqaga", callback_data=f"qedit:view:{qid}:{page}:{prefix}"
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

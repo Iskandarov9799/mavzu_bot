@@ -8,15 +8,17 @@ from database.db import (
     ban_user, unban_user, add_question,
     get_questions_page, search_questions, count_questions,
     delete_question, delete_bolim_questions,
+    get_question_by_id, update_question,
     reset_all_subscriptions, import_questions_from_excel
 )
 from keyboards.keyboards import (
     admin_keyboard, main_menu_keyboard,
     subject_select_keyboard, bolim_select_keyboard,
     correct_answer_keyboard, member_action_keyboard,
-    cancel_keyboard
+    cancel_keyboard,
+    qedit_page_keyboard, qedit_action_keyboard, qedit_fields_keyboard
 )
-from states import AdminStates
+from states import AdminStates, EditQuestionStates
 from config import config
 
 router  = Router()
@@ -316,16 +318,245 @@ async def _save_question(message, state: FSMContext, image_id: str = None):
 # SAVOLLAR RO'YXATI
 # ══════════════════════════════════════════════
 
+# ══════════════════════════════════════════════
+# SAVOLLAR MUHARRIRI
+# ══════════════════════════════════════════════
+
+PAGE_SZ_Q = 5
+
+def _qfull(q) -> str:
+    SUBJ = {"onatili": "📚 Ona tili", "adabiyot": "📖 Adabiyot"}
+    bolim_txt = f"{q.bolim}-bo'lim" if q.bolim > 0 else "Aralash"
+    return (
+        f"🆔 ID: <b>{q.id}</b>\n"
+        f"📚 Fan: <b>{SUBJ.get(q.subject, q.subject)}</b>\n"
+        f"📌 Bo'lim: <b>{bolim_txt}</b>\n\n"
+        f"❓ <b>Savol:</b>\n{q.question_text}\n\n"
+        f"🅰 {q.option_a or '—'}\n"
+        f"🅱 {q.option_b or '—'}\n"
+        f"🅲 {q.option_c or '—'}\n"
+        f"🅳 {q.option_d or '—'}\n\n"
+        f"✅ To'g'ri: <b>{q.correct_answer or '—'}</b>"
+        + (f"\n🖼 Rasm: bor" if q.image_file_id else "")
+    )
+
 @router.message(F.text == "📋 Savollar")
-async def questions_list(message: Message):
+async def questions_list(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    total = await count_questions()
-    qs    = await get_questions_page(limit=10)
-    text  = f"📋 <b>Savollar</b> — jami {total} ta\n\n"
-    for q in qs:
-        SUBJ = {"onatili": "📚", "adabiyot": "📖"}
-        text += f"{SUBJ.get(q.subject,'❓')} #{q.id} [{q.bolim}-bo'lim] {q.question_text[:40]}…\n"
-    await message.answer(text, parse_mode="HTML")
+    await state.clear()
+    prefix = "all"
+    total  = await count_questions()
+    qs     = await get_questions_page(offset=0, limit=PAGE_SZ_Q)
+    if not qs:
+        await message.answer("❌ Bazada savollar yo'q!"); return
+    await message.answer(
+        f"📋 <b>Savollar bazasi</b> — jami <b>{total}</b> ta\n\nSavolni bosib ko'ring:",
+        reply_markup = qedit_page_keyboard(qs, 0, total, prefix),
+        parse_mode   = "HTML"
+    )
+    await state.set_state(EditQuestionStates.browsing)
+
+@router.callback_query(F.data.startswith("qedit:page:"))
+async def qedit_turn_page(callback: CallbackQuery):
+    parts  = callback.data.split(":")
+    page   = int(parts[2])
+    prefix = parts[3]
+
+    if prefix.startswith("srch|"):
+        keyword = prefix[5:]
+        qs      = await search_questions(keyword)
+        total   = len(qs)
+        page_qs = qs[page*PAGE_SZ_Q:(page+1)*PAGE_SZ_Q]
+    else:
+        page_qs = await get_questions_page(offset=page*PAGE_SZ_Q, limit=PAGE_SZ_Q)
+        total   = await count_questions()
+
+    text = f"📋 <b>Savollar</b> — jami <b>{total}</b> ta\n\nSavolni bosing:"
+    kb   = qedit_page_keyboard(page_qs, page, total, prefix)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        try: await callback.message.delete()
+        except Exception: pass
+        await callback.bot.send_message(callback.from_user.id, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("qedit:view:"))
+async def qedit_view(callback: CallbackQuery):
+    parts  = callback.data.split(":")
+    qid    = int(parts[2])
+    page   = int(parts[3])
+    prefix = parts[4]
+    q = await get_question_by_id(qid)
+    if not q:
+        await callback.answer("❌ Savol topilmadi!", show_alert=True); return
+    text = _qfull(q)
+    kb   = qedit_action_keyboard(qid, page, prefix)
+    if q.image_file_id:
+        try:
+            await callback.message.delete()
+            await callback.bot.send_photo(
+                chat_id=callback.from_user.id, photo=q.image_file_id,
+                caption=text, reply_markup=kb, parse_mode="HTML"
+            )
+        except Exception:
+            try: await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception: pass
+    else:
+        try: await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except Exception: pass
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("qedit:edit:"))
+async def qedit_edit(callback: CallbackQuery, state: FSMContext):
+    parts  = callback.data.split(":")
+    qid    = int(parts[2])
+    page   = int(parts[3])
+    prefix = parts[4]
+    await state.update_data(edit_qid=qid, edit_page=page, edit_prefix=prefix)
+    try:
+        await callback.message.edit_text(
+            f"✏️ <b>Savol #{qid}</b> — qaysi maydonni o'zgartirasiz?",
+            reply_markup=qedit_fields_keyboard(qid, page, prefix), parse_mode="HTML"
+        )
+    except Exception:
+        try: await callback.message.delete()
+        except Exception: pass
+        await callback.bot.send_message(
+            callback.from_user.id,
+            f"✏️ <b>Savol #{qid}</b> — qaysi maydonni o'zgartirasiz?",
+            reply_markup=qedit_fields_keyboard(qid, page, prefix), parse_mode="HTML"
+        )
+    await state.set_state(EditQuestionStates.edit_field)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("qedit:field:"))
+async def qedit_field_chosen(callback: CallbackQuery, state: FSMContext):
+    parts  = callback.data.split(":")
+    field  = parts[2]
+    qid    = int(parts[3])
+    page   = int(parts[4])
+    prefix = parts[5]
+    FIELDS = {
+        "question_text":  "savol matni",
+        "option_a":       "A varianti",
+        "option_b":       "B varianti",
+        "option_c":       "C varianti",
+        "option_d":       "D varianti",
+        "correct_answer": "to'g'ri javob (A/B/C/D)",
+        "bolim":          "bo'lim raqami (0-40)",
+        "subject":        "fan (onatili/adabiyot)",
+        "image_file_id":  "rasm file_id",
+    }
+    await state.update_data(edit_qid=qid, edit_field=field, edit_page=page, edit_prefix=prefix)
+    await callback.message.edit_text(
+        f"✏️ <b>#{qid} — {FIELDS.get(field, field)}</b>\n\nYangi qiymatni yozing:",
+        parse_mode="HTML"
+    )
+    await state.set_state(EditQuestionStates.edit_value)
+    await callback.answer()
+
+@router.message(EditQuestionStates.edit_value)
+async def qedit_value_received(message: Message, state: FSMContext):
+    data   = await state.get_data()
+    qid    = data["edit_qid"]
+    field  = data["edit_field"]
+    page   = data.get("edit_page", 0)
+    prefix = data.get("edit_prefix", "all")
+    value  = message.text.strip() if message.text else ""
+    if field == "bolim":
+        try: value = int(value)
+        except ValueError:
+            await message.answer("❌ Raqam kiriting (0-40)!"); return
+    await update_question(qid, **{field: value})
+    await state.clear()
+    q = await get_question_by_id(qid)
+    await message.answer(
+        f"✅ <b>Savol #{qid} yangilandi!</b>\n\n{_qfull(q)}",
+        reply_markup=qedit_action_keyboard(qid, page, prefix),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data.startswith("qedit:del:"))
+async def qedit_delete_confirm(callback: CallbackQuery, state: FSMContext):
+    parts  = callback.data.split(":")
+    qid    = int(parts[2])
+    page   = int(parts[3])
+    prefix = parts[4]
+    await state.update_data(del_qid=qid, del_page=page, del_prefix=prefix)
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Ha, o'chir", callback_data=f"qedit:delok:{qid}:{page}:{prefix}"),
+        InlineKeyboardButton(text="❌ Yo'q",       callback_data=f"qedit:view:{qid}:{page}:{prefix}"),
+    ]])
+    try:
+        await callback.message.edit_text(
+            f"🗑 <b>Savol #{qid} ni o'chirasizmi?</b>\n⚠️ Qaytarib bo'lmaydi!",
+            reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception:
+        try: await callback.message.delete()
+        except Exception: pass
+        await callback.bot.send_message(
+            callback.from_user.id,
+            f"🗑 <b>Savol #{qid} ni o'chirasizmi?</b>",
+            reply_markup=kb, parse_mode="HTML"
+        )
+    await state.set_state(EditQuestionStates.confirm_delete)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("qedit:delok:"))
+async def qedit_delete_confirmed(callback: CallbackQuery, state: FSMContext):
+    parts  = callback.data.split(":")
+    qid    = int(parts[2])
+    page   = int(parts[3])
+    prefix = parts[4]
+    await delete_question(qid)
+    await state.clear()
+    total   = await count_questions()
+    safe_pg = min(page, max(0, (total - 1) // PAGE_SZ_Q))
+    qs      = await get_questions_page(offset=safe_pg*PAGE_SZ_Q, limit=PAGE_SZ_Q)
+    await callback.message.edit_text(
+        f"✅ <b>Savol #{qid} o'chirildi!</b>\n\n📋 Savollar — jami <b>{total}</b> ta:",
+        reply_markup=qedit_page_keyboard(qs, safe_pg, total, prefix),
+        parse_mode="HTML"
+    )
+    await callback.answer("✅ O'chirildi!")
+
+@router.callback_query(F.data == "qedit:search")
+async def qedit_search_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🔍 <b>Qidirish</b>\n\nSavol matnidan kalit so'z yozing:",
+        parse_mode="HTML"
+    )
+    await state.set_state(EditQuestionStates.searching)
+    await callback.answer()
+
+@router.message(EditQuestionStates.searching)
+async def qedit_search_handler(message: Message, state: FSMContext):
+    keyword = (message.text or "").strip()[:30]
+    qs      = await search_questions(keyword)
+    if not qs:
+        await message.answer(f"🔍 '{keyword}' bo'yicha hech narsa topilmadi."); return
+    await state.clear()
+    prefix = f"srch|{keyword}"
+    total  = len(qs)
+    await message.answer(
+        f"🔍 <b>'{keyword}'</b> — <b>{total}</b> ta natija:",
+        reply_markup=qedit_page_keyboard(qs[:PAGE_SZ_Q], 0, total, prefix),
+        parse_mode="HTML"
+    )
+    await state.set_state(EditQuestionStates.browsing)
+
+@router.callback_query(F.data == "qedit:close")
+async def qedit_close(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    try: await callback.message.delete()
+    except Exception: pass
+    await callback.bot.send_message(
+        callback.from_user.id, "📋 Savollar muharriri yopildi.", reply_markup=admin_keyboard()
+    )
+    await callback.answer()
 
 # ══════════════════════════════════════════════
 # BO'LIM O'CHIRISH
